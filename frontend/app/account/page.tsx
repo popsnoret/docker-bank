@@ -11,7 +11,7 @@ export default function AccountPage() {
     async function getAccount() {
       const token = localStorage.getItem("token");
 
-      const response = await fetch("http://127.0.0.1:3001/me/accounts", {
+      const response = await fetch("http://16.171.141.11:3001/me/accounts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -35,7 +35,7 @@ export default function AccountPage() {
 
     const token = localStorage.getItem("token");
 
-    const response = await fetch("http://127.0.0.1:3001/me/accounts/transactions", {
+    const response = await fetch("http://16.171.141.11:3001/me/accounts/transactions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
