@@ -1,7 +1,7 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
-import Database from "better-sqlite3";
+import mysql from "mysql2/promise";
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -10,6 +10,20 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(bodyParser.json());
 
+// Koppla till databasen
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "root",
+  database: process.env.DB_NAME || "bank",
+  port: Number(process.env.DB_PORT || 3306),
+});
+
+async function query(sql, params) {
+  const [results] = await pool.execute(sql, params);
+  return results;
+}
+
 // Generera engångslösenord
 function generateOTP() {
   // Generera en sexsiffrig numerisk OTP
@@ -17,37 +31,15 @@ function generateOTP() {
   return otp.toString();
 }
 
-const db = new Database("bank.db");
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL,
-    password TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS accounts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER NOT NULL,
-    amount REAL NOT NULL DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER NOT NULL,
-    token TEXT NOT NULL
-  );
-`);
-
-app.post("/users", (req, res) => {
+app.post("/users", async (req, res) => {
   const username = req.body.username;
   const password = req.body.password;
 
-  const results = db.prepare("INSERT INTO users (username, password) VALUES (?, ?)").run(username, password);
+  const results = await query("INSERT INTO users (username, password) VALUES (?, ?)", [username, password]);
 
-  const userId = results.lastInsertRowid;
+  const userId = results.insertId;
 
-  db.prepare("INSERT INTO accounts (userId, amount) VALUES (?, ?)").run(userId, 0);
+  await query("INSERT INTO accounts (userId, amount) VALUES (?, ?)", [userId, 0]);
 
   res.status(201).json({
     id: userId,
@@ -56,11 +48,13 @@ app.post("/users", (req, res) => {
   });
 });
 
-app.post("/sessions", (req, res) => {
+app.post("/sessions", async (req, res) => {
   const username = req.body.username;
   const password = req.body.password;
 
-  const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password);
+  const results = await query("SELECT * FROM users WHERE username = ? AND password = ?", [username, password]);
+
+  const user = results[0];
 
   if (!user) {
     return res.status(401).json({
@@ -70,15 +64,17 @@ app.post("/sessions", (req, res) => {
 
   const token = generateOTP();
 
-  db.prepare("INSERT INTO sessions (userId, token) VALUES (?, ?)").run(user.id, token);
+  await query("INSERT INTO sessions (userId, token) VALUES (?, ?)", [user.id, token]);
 
   res.json({ token: token });
 });
 
-app.post("/me/accounts", (req, res) => {
+app.post("/me/accounts", async (req, res) => {
   const token = req.body.token;
 
-  const session = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
+  const sessions = await query("SELECT * FROM sessions WHERE token = ?", [token]);
+
+  const session = sessions[0];
 
   if (!session) {
     return res.status(401).json({
@@ -86,18 +82,22 @@ app.post("/me/accounts", (req, res) => {
     });
   }
 
-  const account = db.prepare("SELECT * FROM accounts WHERE userId = ?").get(session.userId);
+  const accounts = await query("SELECT * FROM accounts WHERE userId = ?", [session.userId]);
+
+  const account = accounts[0];
 
   res.json({
     amount: account.amount,
   });
 });
 
-app.post("/me/accounts/transactions", (req, res) => {
+app.post("/me/accounts/transactions", async (req, res) => {
   const token = req.body.token;
   const amount = req.body.amount;
 
-  const session = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
+  const sessions = await query("SELECT * FROM sessions WHERE token = ?", [token]);
+
+  const session = sessions[0];
 
   if (!session) {
     return res.status(401).json({
@@ -105,9 +105,11 @@ app.post("/me/accounts/transactions", (req, res) => {
     });
   }
 
-  db.prepare("UPDATE accounts SET amount = amount + ? WHERE userId = ?").run(Number(amount), session.userId);
+  await query("UPDATE accounts SET amount = amount + ? WHERE userId = ?", [Number(amount), session.userId]);
 
-  const account = db.prepare("SELECT * FROM accounts WHERE userId = ?").get(session.userId);
+  const accounts = await query("SELECT * FROM accounts WHERE userId = ?", [session.userId]);
+
+  const account = accounts[0];
 
   res.json({
     amount: account.amount,
