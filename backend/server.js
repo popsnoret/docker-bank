@@ -87,7 +87,7 @@ app.post("/me/accounts", async (req, res) => {
   const account = accounts[0];
 
   res.json({
-    amount: account.amount,
+    amount: Number(account.amount),
   });
 });
 
@@ -112,7 +112,7 @@ app.post("/me/accounts/transactions", async (req, res) => {
   const account = accounts[0];
 
   res.json({
-    amount: account.amount,
+    amount: Number(account.amount),
   });
 });
 
