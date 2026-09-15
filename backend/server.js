@@ -1,6 +1,7 @@
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
+import Database from "better-sqlite3";
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -16,42 +17,50 @@ function generateOTP() {
   return otp.toString();
 }
 
-// Din kod här. Skriv dina arrayer
-let users = [];
-let accounts = [];
-let sessions = [];
+const db = new Database("bank.db");
 
-// Din kod här. Skriv dina routes:
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    amount REAL NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    token TEXT NOT NULL
+  );
+`);
+
 app.post("/users", (req, res) => {
   const username = req.body.username;
   const password = req.body.password;
 
-  //   console.log(username);
-  //   console.log(password);
+  const results = db.prepare("INSERT INTO users (username, password) VALUES (?, ?)").run(username, password);
 
-  const user = {
-    id: users.length + 1,
+  const userId = results.lastInsertRowid;
+
+  db.prepare("INSERT INTO accounts (userId, amount) VALUES (?, ?)").run(userId, 0);
+
+  res.status(201).json({
+    id: userId,
     username: username,
     password: password,
-  };
-
-  users.push(user);
-
-  const account = {
-    id: accounts.length + 1,
-    userId: user.id,
-    amount: 0,
-  };
-
-  accounts.push(account);
-  res.status(201).json(user);
+  });
 });
 
 app.post("/sessions", (req, res) => {
   const username = req.body.username;
   const password = req.body.password;
 
-  const user = users.find((user) => user.username === username && user.password === password);
+  const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password);
 
   if (!user) {
     return res.status(401).json({
@@ -61,12 +70,7 @@ app.post("/sessions", (req, res) => {
 
   const token = generateOTP();
 
-  const session = {
-    userId: user.id,
-    token: token,
-  };
-
-  sessions.push(session);
+  db.prepare("INSERT INTO sessions (userId, token) VALUES (?, ?)").run(user.id, token);
 
   res.json({ token: token });
 });
@@ -74,7 +78,7 @@ app.post("/sessions", (req, res) => {
 app.post("/me/accounts", (req, res) => {
   const token = req.body.token;
 
-  const session = sessions.find((session) => session.token === token);
+  const session = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
 
   if (!session) {
     return res.status(401).json({
@@ -82,7 +86,7 @@ app.post("/me/accounts", (req, res) => {
     });
   }
 
-  const account = accounts.find((account) => account.userId === session.userId);
+  const account = db.prepare("SELECT * FROM accounts WHERE userId = ?").get(session.userId);
 
   res.json({
     amount: account.amount,
@@ -93,7 +97,7 @@ app.post("/me/accounts/transactions", (req, res) => {
   const token = req.body.token;
   const amount = req.body.amount;
 
-  const session = sessions.find((session) => session.token === token);
+  const session = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
 
   if (!session) {
     return res.status(401).json({
@@ -101,9 +105,9 @@ app.post("/me/accounts/transactions", (req, res) => {
     });
   }
 
-  const account = accounts.find((account) => account.userId === session.userId);
+  db.prepare("UPDATE accounts SET amount = amount + ? WHERE userId = ?").run(Number(amount), session.userId);
 
-  account.amount += Number(amount);
+  const account = db.prepare("SELECT * FROM accounts WHERE userId = ?").get(session.userId);
 
   res.json({
     amount: account.amount,
