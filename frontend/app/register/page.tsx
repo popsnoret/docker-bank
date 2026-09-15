@@ -10,7 +10,7 @@ export default function RegisterPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const response = await fetch("http://16.171.141.11:3001/users", {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://16.171.141.11:3001"}/users`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
